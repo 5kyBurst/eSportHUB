@@ -1,0 +1,16 @@
+# Dépendances
+web/node_modules/
+
+# Build Next.js
+web/.next/
+web/.next-eSportHUB/
+web/out/
+
+# Secrets — ne jamais committer
+web/.env.local
+web/.env*.local
+
+# Divers
+.DS_Store
+Thumbs.db
+TEMP/
