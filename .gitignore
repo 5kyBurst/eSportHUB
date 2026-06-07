@@ -1,9 +1,10 @@
 # Dépendances
 web/node_modules/
 
-# Build Next.js
+# Build Next.js (tous les dossiers .next, y compris les copies numérotées)
 web/.next/
-web/.next-eSportHUB/
+web/.next-*/
+web/(2).next/
 web/out/
 
 # Secrets — ne jamais committer
