@@ -44,21 +44,20 @@ const SINGLE_ROUND_LABELS: Record<number, string> = {
   4: "Finale",
 };
 
-// Libellés Upper Bracket pour double élimination
+// Libellés Upper/Winners Bracket pour double élimination (CDL Playoffs)
 const UB_ROUND_LABELS: Record<number, string> = {
-  1: "UB Quarts de finale",
-  2: "UB Demi-finales",
-  3: "UB Finale",
-  4: "Grande Finale",
+  1: "Winners Round 1",
+  2: "Winners Round 2",
+  3: "Winners Final",
+  4: "Grand Final",
 };
 
-// Libellés Lower Bracket pour double élimination
+// Libellés Lower/Elimination Bracket pour double élimination
 const LB_ROUND_LABELS: Record<number, string> = {
-  1: "LB Tour 1",
-  2: "LB Tour 2",
-  3: "LB Quarts de finale",
-  4: "LB Demi-finales",
-  5: "LB Finale",
+  1: "Elimination Round 1",
+  2: "Elimination Round 2",
+  3: "Elimination Round 3",
+  4: "Elimination Finals",
 };
 
 function toISO(dateStr: string, timeStr: string, tz: string): string {

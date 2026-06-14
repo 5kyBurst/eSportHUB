@@ -2,62 +2,55 @@
 import { useRef, useEffect, useState } from "react";
 import type { DBMatch } from "./types";
 
-// ─── Constantes de layout ────────────────────────────────────────────────────
-const SLOT_H  = 90;
-const MATCH_H = 62;
-const INSET_Y = (SLOT_H - MATCH_H) / 2;   // 14
-const COL_W   = 148;
-const GAP_W   = 36;
-const STRIDE  = COL_W + GAP_W;             // 184
-const LABEL_H = 24;
+// ─── Layout : CDL Playoffs / Championship (double élimination 8 équipes) ──────
+// Upper : WR1 (2) → WR2 (2) → Winners Final (1) → Grand Final (1)
+// Lower : ER1 (2) → ER2 (2) → ER3 (1) → Elimination Finals (1)
+const SLOT_H  = 120;
+const MATCH_H = 70;
+const INSET_Y = (SLOT_H - MATCH_H) / 2;   // 25
+const COL_W   = 160;
+const GAP_W   = 40;
+const STRIDE  = COL_W + GAP_W;             // 200
+const LABEL_H = 26;
 
-// Section Upper Bracket
-const UB_H    = 4 * SLOT_H;               // 360
+const UB_H    = 2 * SLOT_H;               // 240
+const SEC_GAP = 44;
+const LB_TOP  = UB_H + SEC_GAP;           // 284
+const LB_H    = 2 * SLOT_H;               // 240
+const TOTAL_H = UB_H + SEC_GAP + LB_H;    // 524
 
-// Gap entre UB et LB (contient le header LB)
-const SEC_GAP = 40;
+const GF_COL  = 4;                         // 5e colonne
+const TOTAL_W = GF_COL * STRIDE + COL_W;  // 4*200+160 = 960
 
-// Section Lower Bracket
-const LB_TOP  = UB_H + SEC_GAP;           // 400
-const LB_H    = 4 * SLOT_H;               // 360
-
-// Hauteur totale du contenu bracket (sans le label_h du haut)
-const TOTAL_H = UB_H + SEC_GAP + LB_H;    // 760
-
-// 6 colonnes : 0-2 = UB QF/SF/Final, 3-4 = LB SF/Final (shared), 5 = GF
-const GF_COL  = 5;
-const TOTAL_W = GF_COL * STRIDE + COL_W;  // 5*184+148 = 1068
-
-// Y absolu (dans la zone bracket) — UB et LB
+// Y absolu dans la zone bracket
 const cy_ub = (s: number) => s * SLOT_H + SLOT_H / 2;
 const cy_lb = (s: number) => LB_TOP + s * SLOT_H + SLOT_H / 2;
 const my_ub = (s: number) => s * SLOT_H + INSET_Y;
 const my_lb = (s: number) => LB_TOP + s * SLOT_H + INSET_Y;
 const cx    = (c: number) => c * STRIDE;
 
-// Grand Final : centré verticalement entre UB Finale et LB Finale
-// cy_ub(1.5) = 1.5*90+45 = 180 ; cy_lb(1.5) = 400+135+45 = 580
-const GF_CENTER_Y = (cy_ub(1.5) + cy_lb(1.5)) / 2;  // 380
-const GF_TOP      = GF_CENTER_Y - MATCH_H / 2;        // 349
+// Grand Final : centré entre Winners Final et Elimination Finals
+// cy_ub(0.5) = 60+60 = 120 ; cy_lb(0.5) = 284+60+60 = 404
+const GF_CENTER_Y = (cy_ub(0.5) + cy_lb(0.5)) / 2;  // 262
+const GF_TOP      = GF_CENTER_Y - MATCH_H / 2;        // 227
 
 const LINE = "#1E2D3D";
 
 // ─── Configuration des rounds ─────────────────────────────────────────────────
 const UB_ROUNDS = [
-  { label: "UB Quarts de finale", col: 0, slots: [0, 1, 2, 3] },
-  { label: "UB Demi-finales",     col: 1, slots: [0.5, 2.5]   },
-  { label: "UB Finale",           col: 2, slots: [1.5]         },
+  { label: "Winners Round 1", col: 0, slots: [0, 1] },
+  { label: "Winners Round 2", col: 1, slots: [0, 1] },
+  { label: "Winners Final",   col: 2, slots: [0.5]  },
 ] as const;
 
 const LB_ROUNDS = [
-  { label: "LB Tour 1",            col: 0, slots: [0, 1, 2, 3] },
-  { label: "LB Tour 2",            col: 1, slots: [0.5, 2.5]   },
-  { label: "LB Quarts de finale",  col: 2, slots: [0.5, 2.5]   },
-  { label: "LB Demi-finales",      col: 3, slots: [1.5]         },
-  { label: "LB Finale",            col: 4, slots: [1.5]         },
+  { label: "Elimination Round 1", col: 0, slots: [0, 1]  },
+  { label: "Elimination Round 2", col: 1, slots: [0, 1]  },
+  { label: "Elimination Round 3", col: 2, slots: [0.5]   },
+  { label: "Elimination Finals",  col: 3, slots: [0.5]   },
 ] as const;
 
-const GF_LABEL = "Grande Finale";
+const GF_LABEL = "Grand Final";
 
 // ─── Couleurs équipes ─────────────────────────────────────────────────────────
 const TEAMS: Record<string, { color: string; abbr: string }> = {
@@ -107,8 +100,8 @@ function MatchBox({
       <div
         onClick={() => canClick && onPick(team)}
         style={{
-          display: "flex", alignItems: "center", gap: 5,
-          padding: "5px 7px 5px 5px",
+          display: "flex", alignItems: "center", gap: 6,
+          padding: "6px 8px 6px 6px",
           cursor: canClick ? "pointer" : "default",
           background: win ? `${info.color}18` : (picked && !done) ? `${info.color}12` : "transparent",
           borderLeft: `3px solid ${picked ? info.color : "transparent"}`,
@@ -118,25 +111,25 @@ function MatchBox({
         }}
       >
         <div style={{
-          width: 20, height: 20, borderRadius: 4, flexShrink: 0,
+          width: 22, height: 22, borderRadius: 4, flexShrink: 0,
           background: `${info.color}22`,
           border: `1px solid ${(win || picked) ? info.color + "88" : info.color + "33"}`,
           display: "flex", alignItems: "center", justifyContent: "center",
           fontFamily: "var(--font-head)", fontWeight: 800, fontSize: 7,
-          color: info.color, letterSpacing: 0,
+          color: info.color,
         }}>
           {info.abbr.slice(0, 3)}
         </div>
         <span style={{
           flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-          fontFamily: "var(--font-head)", fontWeight: win ? 800 : 600, fontSize: 10,
+          fontFamily: "var(--font-head)", fontWeight: win ? 800 : 600, fontSize: 11,
           color: win ? info.color : picked ? "var(--text)" : isTBD ? "var(--text3)" : "var(--text2)",
         }}>
           {team || "TBD"}
         </span>
         {score !== null && (
           <span style={{
-            fontFamily: "var(--font-head)", fontWeight: 900, fontSize: 14,
+            fontFamily: "var(--font-head)", fontWeight: 900, fontSize: 15,
             color: win ? info.color : "var(--text3)",
             minWidth: 14, textAlign: "right", flexShrink: 0,
           }}>
@@ -159,12 +152,12 @@ function MatchBox({
       border: pts !== null
         ? `1px solid ${pts === 3 ? "#36D39955" : "#F8717155"}`
         : "1px solid var(--border)",
-      borderRadius: 7, overflow: "visible",
+      borderRadius: 8, overflow: "visible",
       background: isTBD ? "var(--bg2)" : "var(--surface)",
       position: "relative",
       boxShadow: isTBD ? "none" : "0 2px 8px #00000030",
     }}>
-      <div style={{ overflow: "hidden", borderRadius: 6 }}>
+      <div style={{ overflow: "hidden", borderRadius: 7 }}>
         <Row team={match.team_a || "TBD"} score={match.score_a} info={t1}
           win={winA} picked={pick === match.team_a} loss={winB} />
         <div style={{ height: 1, background: "var(--border)" }} />
@@ -187,18 +180,13 @@ function MatchBox({
   );
 }
 
-// Placeholder match pour les slots vides (teams non encore décidées)
 function makePlaceholder(round: string, idx: number): DBMatch {
   return {
     id: `ph-${round}-${idx}`,
     match_key: `ph-${round}-${idx}`,
-    team_a: "TBD",
-    team_b: "TBD",
-    score_a: null,
-    score_b: null,
-    status: "upcoming",
-    scheduled_at: "",
-    round_label: round,
+    team_a: "TBD", team_b: "TBD",
+    score_a: null, score_b: null,
+    status: "upcoming", scheduled_at: "", round_label: round,
   };
 }
 
@@ -220,7 +208,7 @@ export function BracketViewDouble({
     if (!el) return;
     const update = () => {
       const available = el.clientWidth - 8;
-      setScale(Math.min(1.3, Math.max(0.28, available / TOTAL_W)));
+      setScale(Math.min(1.5, Math.max(0.3, available / TOTAL_W)));
     };
     update();
     const ro = new ResizeObserver(update);
@@ -228,7 +216,6 @@ export function BracketViewDouble({
     return () => ro.disconnect();
   }, []);
 
-  // Grouper les matchs par round_label
   const allLabels = [
     ...UB_ROUNDS.map(r => r.label),
     ...LB_ROUNDS.map(r => r.label),
@@ -248,7 +235,6 @@ export function BracketViewDouble({
     return grouped[round]?.[idx] ?? makePlaceholder(round, idx);
   }
 
-  // Rounds verrouillés (1h avant le 1er match)
   const now = Date.now();
   const locked = new Set<string>();
   for (const l of allLabels) {
@@ -259,16 +245,15 @@ export function BracketViewDouble({
     }
   }
 
-  // Hauteur totale après scale
   const scaledH = Math.round((TOTAL_H + LABEL_H) * scale);
 
-  // Coordonnées pour le connecteur GF
-  const xUBF_r = cx(2) + COL_W;                // droite de UB Finale (col 2)
-  const xLBF_r = cx(4) + COL_W;                // droite de LB Finale (col 4)
-  const xGF_l  = cx(GF_COL);                   // gauche de GF (col 5)
-  const xJoin  = xGF_l - GAP_W / 2;            // barre verticale partagée
-  const yUBF   = cy_ub(1.5);                   // centre de UB Finale
-  const yLBF   = cy_lb(1.5);                   // centre de LB Finale
+  // Coordonnées connecteur GF
+  const xWF_r    = cx(2) + COL_W;   // droite de Winners Final
+  const xEF_r    = cx(3) + COL_W;   // droite de Elimination Finals
+  const xGF_l    = cx(GF_COL);
+  const xJoin    = xGF_l - GAP_W / 2;
+  const yUB_fin  = cy_ub(0.5);
+  const yLB_fin  = cy_lb(0.5);
 
   return (
     <div ref={outerRef} style={{ width: "100%", position: "relative", height: scaledH }}>
@@ -280,63 +265,58 @@ export function BracketViewDouble({
         height: TOTAL_H + LABEL_H,
       }}>
 
-        {/* ── En-têtes de rounds UB ──────────────────────────────────────── */}
+        {/* ── En-tête "Winners Bracket" ──────────────────────────────────── */}
         <div style={{
           position: "absolute", top: 0, left: 0, height: LABEL_H,
           display: "flex", alignItems: "center",
           fontFamily: "var(--font-head)", fontWeight: 900, fontSize: 9,
           textTransform: "uppercase", letterSpacing: 2, color: "#4A8FE2",
         }}>
-          Upper Bracket
+          Winners Bracket
         </div>
+
+        {/* Labels de rounds UB */}
         {UB_ROUNDS.map(r => (
           <div key={r.label} style={{
             position: "absolute", top: 0, left: cx(r.col), width: COL_W,
             height: LABEL_H, display: "flex", alignItems: "center", justifyContent: "center",
-            fontFamily: "var(--font-head)", fontWeight: 800, fontSize: 8,
+            fontFamily: "var(--font-head)", fontWeight: 800, fontSize: 9,
             textTransform: "uppercase", letterSpacing: 1, color: "var(--text3)",
           }}>
-            {r.label.replace(/^UB /, "")}
+            {r.label}
           </div>
         ))}
         <div style={{
           position: "absolute", top: 0, left: cx(GF_COL), width: COL_W,
           height: LABEL_H, display: "flex", alignItems: "center", justifyContent: "center",
-          fontFamily: "var(--font-head)", fontWeight: 800, fontSize: 8,
+          fontFamily: "var(--font-head)", fontWeight: 900, fontSize: 9,
           textTransform: "uppercase", letterSpacing: 1, color: "#F5C842",
         }}>
-          Grande Finale
+          Grand Final
         </div>
 
-        {/* ── Zone bracket (décalée sous les en-têtes) ──────────────────── */}
+        {/* ── Zone bracket ──────────────────────────────────────────────── */}
         <div style={{
           position: "absolute", top: LABEL_H, left: 0,
           width: TOTAL_W, height: TOTAL_H,
         }}>
-
-          {/* SVG : toutes les lignes de connexion */}
           <svg style={{
             position: "absolute", inset: 0,
             width: TOTAL_W, height: TOTAL_H,
             overflow: "visible", pointerEvents: "none",
           }}>
-            {/* ── UB QF → UB SF : 2 connecteurs en bracket ───────────── */}
-            {([0, 1] as const).map(sf => {
-              const y1 = cy_ub(sf * 2), y2 = cy_ub(sf * 2 + 1), yM = cy_ub(sf * 2 + 0.5);
-              const x0 = cx(0) + COL_W, x2 = cx(1), xM = x0 + GAP_W / 2;
-              return (
-                <g key={`ubqfsf-${sf}`}>
-                  <line x1={x0} y1={y1} x2={xM} y2={y1} stroke={LINE} strokeWidth={1.5} />
-                  <line x1={x0} y1={y2} x2={xM} y2={y2} stroke={LINE} strokeWidth={1.5} />
-                  <line x1={xM} y1={y1} x2={xM} y2={y2} stroke={LINE} strokeWidth={1.5} />
-                  <line x1={xM} y1={yM} x2={x2} y2={yM} stroke={LINE} strokeWidth={1.5} />
-                </g>
-              );
-            })}
+            {/* ── WR1 → WR2 : lignes horizontales directes ─────────────── */}
+            {[0, 1].map(s => (
+              <line key={`wr1wr2-${s}`}
+                x1={cx(0) + COL_W} y1={cy_ub(s)}
+                x2={cx(1)}         y2={cy_ub(s)}
+                stroke={LINE} strokeWidth={1.5}
+              />
+            ))}
 
-            {/* ── UB SF → UB Finale : 1 connecteur ───────────────────── */}
+            {/* ── WR2 → Winners Final : connecteur bracket ──────────────── */}
             {(() => {
-              const y1 = cy_ub(0.5), y2 = cy_ub(2.5), yM = cy_ub(1.5);
+              const y1 = cy_ub(0), y2 = cy_ub(1), yM = cy_ub(0.5);
               const x0 = cx(1) + COL_W, x2 = cx(2), xM = x0 + GAP_W / 2;
               return (
                 <g>
@@ -348,45 +328,27 @@ export function BracketViewDouble({
               );
             })()}
 
-            {/* ── UB Finale + LB Finale → GF : barre verticale partagée ── */}
+            {/* ── Winners Final + Elimination Finals → GF ───────────────── */}
             <g>
-              {/* UB Finale → barre */}
-              <line x1={xUBF_r} y1={yUBF} x2={xJoin} y2={yUBF} stroke={LINE} strokeWidth={1.5} />
-              {/* LB Finale → barre */}
-              <line x1={xLBF_r} y1={yLBF} x2={xJoin} y2={yLBF} stroke={LINE} strokeWidth={1.5} />
-              {/* Barre verticale */}
-              <line x1={xJoin} y1={yUBF} x2={xJoin} y2={yLBF} stroke={LINE} strokeWidth={1.5} />
-              {/* Milieu → GF */}
-              <line x1={xJoin} y1={GF_CENTER_Y} x2={xGF_l} y2={GF_CENTER_Y} stroke={LINE} strokeWidth={1.5} />
+              <line x1={xWF_r}  y1={yUB_fin} x2={xJoin} y2={yUB_fin} stroke={LINE} strokeWidth={1.5} />
+              <line x1={xEF_r}  y1={yLB_fin} x2={xJoin} y2={yLB_fin} stroke={LINE} strokeWidth={1.5} />
+              <line x1={xJoin}  y1={yUB_fin} x2={xJoin} y2={yLB_fin} stroke={LINE} strokeWidth={1.5} />
+              <line x1={xJoin}  y1={GF_CENTER_Y} x2={xGF_l} y2={GF_CENTER_Y} stroke={LINE} strokeWidth={1.5} />
             </g>
 
-            {/* ── LB R1 → LB R2 : 2 connecteurs en bracket ─────────── */}
-            {([0, 1] as const).map(r2i => {
-              const y1 = cy_lb(r2i * 2), y2 = cy_lb(r2i * 2 + 1), yM = cy_lb(r2i * 2 + 0.5);
-              const x0 = cx(0) + COL_W, x2 = cx(1), xM = x0 + GAP_W / 2;
-              return (
-                <g key={`lbr1r2-${r2i}`}>
-                  <line x1={x0} y1={y1} x2={xM} y2={y1} stroke={LINE} strokeWidth={1.5} />
-                  <line x1={x0} y1={y2} x2={xM} y2={y2} stroke={LINE} strokeWidth={1.5} />
-                  <line x1={xM} y1={y1} x2={xM} y2={y2} stroke={LINE} strokeWidth={1.5} />
-                  <line x1={xM} y1={yM} x2={x2} y2={yM} stroke={LINE} strokeWidth={1.5} />
-                </g>
-              );
-            })}
-
-            {/* ── LB R2 → LB QF : lignes horizontales directes ────────── */}
-            {[0.5, 2.5].map(slot => (
-              <line key={`r2qf-${slot}`}
-                x1={cx(1) + COL_W} y1={cy_lb(slot)}
-                x2={cx(2)}         y2={cy_lb(slot)}
+            {/* ── ER1 → ER2 : lignes horizontales directes ─────────────── */}
+            {[0, 1].map(s => (
+              <line key={`er1er2-${s}`}
+                x1={cx(0) + COL_W} y1={cy_lb(s)}
+                x2={cx(1)}         y2={cy_lb(s)}
                 stroke={LINE} strokeWidth={1.5}
               />
             ))}
 
-            {/* ── LB QF → LB Demis : 1 connecteur ─────────────────────── */}
+            {/* ── ER2 → ER3 : connecteur bracket ───────────────────────── */}
             {(() => {
-              const y1 = cy_lb(0.5), y2 = cy_lb(2.5), yM = cy_lb(1.5);
-              const x0 = cx(2) + COL_W, x2 = cx(3), xM = x0 + GAP_W / 2;
+              const y1 = cy_lb(0), y2 = cy_lb(1), yM = cy_lb(0.5);
+              const x0 = cx(1) + COL_W, x2 = cx(2), xM = x0 + GAP_W / 2;
               return (
                 <g>
                   <line x1={x0} y1={y1} x2={xM} y2={y1} stroke={LINE} strokeWidth={1.5} />
@@ -397,43 +359,45 @@ export function BracketViewDouble({
               );
             })()}
 
-            {/* ── LB Demis → LB Finale : ligne horizontale ─────────────── */}
+            {/* ── ER3 → Elimination Finals : ligne horizontale ──────────── */}
             <line
-              x1={cx(3) + COL_W} y1={cy_lb(1.5)}
-              x2={cx(4)}          y2={cy_lb(1.5)}
+              x1={cx(2) + COL_W} y1={cy_lb(0.5)}
+              x2={cx(3)}          y2={cy_lb(0.5)}
               stroke={LINE} strokeWidth={1.5}
             />
           </svg>
 
-          {/* ── Séparateur UB / LB ────────────────────────────────────── */}
+          {/* Séparateur Winners / Elimination */}
           <div style={{
             position: "absolute",
             top: UB_H + SEC_GAP / 2 - 1, left: 0, right: 0,
-            height: 1, background: "var(--border)", opacity: 0.5,
+            height: 1, background: "var(--border)", opacity: 0.4,
           }} />
 
-          {/* En-tête Lower Bracket dans le gap */}
+          {/* En-tête "Elimination Bracket" dans le gap */}
           <div style={{
             position: "absolute", top: UB_H + 8, left: 0,
             fontFamily: "var(--font-head)", fontWeight: 900, fontSize: 9,
             textTransform: "uppercase", letterSpacing: 2, color: "#E09B3D",
           }}>
-            Lower Bracket
+            Elimination Bracket
           </div>
+
+          {/* Labels de rounds LB */}
           {LB_ROUNDS.map(r => (
             <div key={r.label} style={{
               position: "absolute",
               top: UB_H + SEC_GAP - LABEL_H + 2,
               left: cx(r.col), width: COL_W,
               textAlign: "center",
-              fontFamily: "var(--font-head)", fontWeight: 800, fontSize: 8,
+              fontFamily: "var(--font-head)", fontWeight: 800, fontSize: 9,
               textTransform: "uppercase", letterSpacing: 1, color: "var(--text3)",
             }}>
-              {r.label.replace(/^LB /, "")}
+              {r.label}
             </div>
           ))}
 
-          {/* ── Boîtes match UB ──────────────────────────────────────────── */}
+          {/* ── Boîtes UB ────────────────────────────────────────────────── */}
           {UB_ROUNDS.map(r =>
             (r.slots as readonly number[]).map((slot, mi) => {
               const m = getMatch(r.label, mi);
@@ -453,7 +417,7 @@ export function BracketViewDouble({
             })
           )}
 
-          {/* ── Boîtes match LB ──────────────────────────────────────────── */}
+          {/* ── Boîtes LB ────────────────────────────────────────────────── */}
           {LB_ROUNDS.map(r =>
             (r.slots as readonly number[]).map((slot, mi) => {
               const m = getMatch(r.label, mi);
@@ -473,14 +437,13 @@ export function BracketViewDouble({
             })
           )}
 
-          {/* ── Grande Finale (centrée entre UB et LB) ──────────────────── */}
+          {/* ── Grand Final (centré entre UB et LB) ─────────────────────── */}
           {(() => {
             const m = getMatch(GF_LABEL, 0);
             return (
               <div style={{
                 position: "absolute",
-                left: cx(GF_COL), top: GF_TOP, width: COL_W,
-                zIndex: 10,
+                left: cx(GF_COL), top: GF_TOP, width: COL_W, zIndex: 10,
               }}>
                 <MatchBox
                   match={m}
