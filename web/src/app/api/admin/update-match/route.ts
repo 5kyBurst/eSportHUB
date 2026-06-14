@@ -1,0 +1,32 @@
+import { NextResponse } from "next/server";
+import { createClient as createServerClient } from "@/lib/supabase/server";
+import { createClient } from "@supabase/supabase-js";
+import type { Database } from "@/types/database";
+
+function adminClient() {
+  return createClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+}
+
+// POST /api/admin/update-match  { matchId, scoreA, scoreB, status }
+export async function POST(req: Request) {
+  const supabase = await createServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user || user.email !== process.env.ADMIN_EMAIL) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const { matchId, scoreA, scoreB, status } = await req.json() as {
+    matchId: string; scoreA: number | null; scoreB: number | null; status: string;
+  };
+
+  const { error } = await adminClient()
+    .from("matches")
+    .update({ score_a: scoreA, score_b: scoreB, status })
+    .eq("id", matchId);
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
+}

@@ -29,6 +29,7 @@ export interface Database {
           end_date: string;
           status: MatchStatus;
           liquipedia_url: string | null;
+          game: string | null;
           created_at: string;
         };
         Insert: Omit<Database["public"]["Tables"]["tournaments"]["Row"], "id" | "created_at">;

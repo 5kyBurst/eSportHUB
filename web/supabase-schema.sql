@@ -30,6 +30,7 @@ create table tournaments (
   start_date      date not null,
   end_date        date not null,
   status          text not null default 'upcoming' check (status in ('upcoming', 'live', 'finished')),
+  game            text,
   liquipedia_url  text,
   created_at      timestamptz default now()
 );
