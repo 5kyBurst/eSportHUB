@@ -4,8 +4,8 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import { BracketView } from "./_BracketView";
-import { BracketViewDouble } from "./_BracketViewDouble";
+import { GenericBracket } from "./_GenericBracket";
+import type { BracketLayout, BracketSlot } from "@/lib/liquipedia";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type ScoreInput = { score1: string; score2: string };
@@ -253,6 +253,8 @@ export default function CDLTournamentPage() {
   const [saveError, setSaveError]     = useState<string | null>(null);
   // Bracket format : picks = { matchId → teamName }
   const [bracketPicks, setBracketPicks] = useState<Record<string, string>>({});
+  const [bracketLayout, setBracketLayout] = useState<BracketLayout | null>(null);
+  const [bracketSlots, setBracketSlots] = useState<BracketSlot[]>([]);
 
   // Chargement du tournoi + matchs + prédictions de l'utilisateur
   useEffect(() => {
@@ -269,6 +271,18 @@ export default function CDLTournamentPage() {
 
       if (!t) { setLoading(false); return; }
       setTournament(t);
+
+      // 1b. Layout Liquipedia (structure du bracket + slots TBD)
+      const isBracketFormat = ["bracket", "double_elim", "double_elimination", "single_elimination"].includes(t.format ?? "");
+      if (isBracketFormat) {
+        fetch(`/api/bracket/${t.slug}`)
+          .then(r => r.json())
+          .then((d: { layout?: BracketLayout; slots?: BracketSlot[] }) => {
+            if (d.layout) setBracketLayout(d.layout);
+            if (d.slots?.length) setBracketSlots(d.slots);
+          })
+          .catch(() => {/* silencieux */});
+      }
 
       // 2. Matchs
       const { data: matches } = await supabase
@@ -439,8 +453,8 @@ export default function CDLTournamentPage() {
     );
   }
 
-  const isBracket      = tournament?.format === "bracket" || tournament?.format === "double_elim";
-  const isDoubleBracket = tournament?.format === "double_elim";
+  const isBracket      = tournament?.format === "bracket" || tournament?.format === "double_elim" || tournament?.format === "double_elimination";
+  const isDoubleBracket = tournament?.format === "double_elim" || tournament?.format === "double_elimination";
   const week       = weeks[activeWeek];
   const allMatches = weeks.flatMap(w => w.days.flatMap(d => d.matches));
   const finished   = allMatches.filter(m => m.status === "finished");
@@ -533,8 +547,10 @@ export default function CDLTournamentPage() {
       {/* ── Format bracket ────────────────────────────────────────────────── */}
       {isBracket ? (
         <>
-          {isDoubleBracket ? (
-            <BracketViewDouble
+          {bracketLayout ? (
+            <GenericBracket
+              layout={bracketLayout}
+              slots={bracketSlots}
               matches={allMatches}
               picks={bracketPicks}
               onPick={(matchId, team) => {
@@ -546,17 +562,9 @@ export default function CDLTournamentPage() {
               }}
             />
           ) : (
-          <BracketView
-            matches={allMatches}
-            picks={bracketPicks}
-            onPick={(matchId, team) => {
-              setBracketPicks(p => {
-                if (p[matchId] === team) { const next = { ...p }; delete next[matchId]; return next; }
-                return { ...p, [matchId]: team };
-              });
-              setValidated(false);
-            }}
-          />
+            <div style={{ padding: "24px 0", color: "var(--text3)", fontFamily: "var(--font-head)", fontSize: 13 }}>
+              Chargement du bracket…
+            </div>
           )}
 
           {upcoming.length > 0 && (

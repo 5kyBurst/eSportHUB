@@ -171,6 +171,209 @@ function parseGeneric(html: string, knownTeams: string[]): ParsedResult[] {
   return results;
 }
 
+// ─── Extraction structure de bracket (wikitext) ───────────────────────────────
+
+export interface BracketSlot {
+  roundLabel: string;   // DB round_label
+  slotIndex: number;    // 0-based dans le round
+  teamA: string;
+  teamB: string;
+}
+
+export interface RoundInfo {
+  label: string;      // label d'affichage
+  dbLabel: string;    // correspond au round_label en DB
+  matchCount: number;
+}
+
+export interface BracketLayout {
+  hasLowerBracket: boolean;
+  isSingleElim: boolean;
+  ubRounds: RoundInfo[];   // rounds Upper / Winners (sans GF si double élim)
+  lbRounds: RoundInfo[];   // rounds Lower / Elimination (vide si single élim)
+  grandFinalDbLabel: string | null;
+}
+
+export interface BracketData {
+  layout: BracketLayout;
+  slots: BracketSlot[];
+}
+
+// Labels CDL (double élim) → alignés avec liquipedia-import.ts
+const UB_LABELS: Record<number, string> = {
+  1: "Winners Round 1",
+  2: "Winners Round 2",
+  3: "Winners Final",
+  4: "Grand Final",
+};
+const LB_LABELS: Record<number, string> = {
+  1: "Elimination Round 1",
+  2: "Elimination Round 2",
+  3: "Elimination Round 3",
+  4: "Elimination Finals",
+};
+// Labels single élim → alignés avec liquipedia-import.ts
+const SINGLE_LABELS: Record<number, string> = {
+  1: "Tour 1",
+  2: "Quarts de finale",
+  3: "Demi-finales",
+  4: "Finale",
+};
+
+// Essaie de résoudre un shortcode d'équipe en nom complet
+const TEAM_ABBR: Record<string, string> = {
+  // CDL
+  tx:   "OpTic Texas",     ryd:  "Riyadh Falcons",  bos:  "Boston Breach",
+  g2m:  "G2 Minnesota",   lat:  "Los Angeles Thieves", pgm: "Paris Gentle Mates",
+  car:  "Carolina Royal Ravens", fv: "FaZe Vegas",  tor:  "Toronto KOI",
+  van:  "Vancouver Surge", mia:  "Miami Heretics",  c9ny: "Cloud9 New York",
+  // VCT
+  prx: "Paper Rex", vit: "Team Vitality", edg: "Edward Gaming",
+  lev: "Leviatán",  fut: "FUT Esports",   xlg: "XLG",
+  g2:  "G2 Esports", th: "Team Heretics", nrg: "NRG",
+  ge:  "Gen.G",     drg: "DRG",           ful: "FULL SENSE",
+};
+
+function resolveTeam(abbr: string): string {
+  return TEAM_ABBR[abbr.toLowerCase().trim()] ?? abbr.trim();
+}
+
+function parseBracketData(wikitext: string): BracketData {
+  // 1. Compter les matchs par round (max M per R/L)
+  const ubMatchCount: Record<number, number> = {};
+  const lbMatchCount: Record<number, number> = {};
+
+  for (const m of wikitext.matchAll(/\|R(\d+)M(\d+)\s*=/g)) {
+    const r = parseInt(m[1]), n = parseInt(m[2]);
+    ubMatchCount[r] = Math.max(ubMatchCount[r] ?? 0, n);
+  }
+  for (const m of wikitext.matchAll(/\|L(\d+)M(\d+)\s*=/g)) {
+    const r = parseInt(m[1]), n = parseInt(m[2]);
+    lbMatchCount[r] = Math.max(lbMatchCount[r] ?? 0, n);
+  }
+
+  const ubRoundNums = Object.keys(ubMatchCount).map(Number).sort((a, b) => a - b);
+  const lbRoundNums = Object.keys(lbMatchCount).map(Number).sort((a, b) => a - b);
+  const hasLB = lbRoundNums.length > 0;
+  const isSingleElim = !hasLB;
+
+  // 2. Identifier le Grand Final (double élim : dernier round UB avec 1 match)
+  //    En single élim on n'a pas de GF séparé (dernière ronde = finale)
+  let gfRound: number | null = null;
+  let grandFinalDbLabel: string | null = null;
+  if (hasLB) {
+    // Double élim : le GF est le dernier R (généralement R avec 1 match après le WF)
+    gfRound = ubRoundNums[ubRoundNums.length - 1];
+    grandFinalDbLabel = UB_LABELS[gfRound] ?? `UB Round ${gfRound}`;
+  }
+
+  // 3. Construire ubRounds (hors GF pour double élim)
+  const ubRoundsToShow = hasLB
+    ? ubRoundNums.filter(r => r !== gfRound)
+    : ubRoundNums;
+
+  const ubRounds: RoundInfo[] = ubRoundsToShow.map(r => {
+    const dbLabel = isSingleElim
+      ? (SINGLE_LABELS[r] ?? `Round ${r}`)
+      : (UB_LABELS[r] ?? `UB Round ${r}`);
+    return { label: dbLabel, dbLabel, matchCount: ubMatchCount[r] };
+  });
+
+  // 4. LB rounds
+  const lbRounds: RoundInfo[] = lbRoundNums.map(r => {
+    const dbLabel = LB_LABELS[r] ?? `Elimination Round ${r}`;
+    return { label: dbLabel, dbLabel, matchCount: lbMatchCount[r] };
+  });
+
+  // 5. Parser les slots (équipes dans chaque slot, y compris TBD)
+  const slots: BracketSlot[] = [];
+  const roundCounts: Record<string, number> = {};
+
+  const lines = wikitext.split("\n");
+  let charPos = 0;
+  const positions: number[] = [];
+  const ctxs: Array<{ dbLabel: string }> = [];
+
+  for (const line of lines) {
+    const ubM = line.match(/\|R(\d+)M(\d+)\s*=\s*\{\{Match/);
+    if (ubM) {
+      const r = parseInt(ubM[1]);
+      const dbLabel = r === gfRound
+        ? (grandFinalDbLabel ?? "Grand Final")
+        : isSingleElim
+          ? (SINGLE_LABELS[r] ?? `Round ${r}`)
+          : (UB_LABELS[r] ?? `UB Round ${r}`);
+      positions.push(charPos);
+      ctxs.push({ dbLabel });
+    }
+    const lbM = line.match(/\|L(\d+)M(\d+)\s*=\s*\{\{Match/);
+    if (lbM) {
+      const r = parseInt(lbM[1]);
+      const dbLabel = LB_LABELS[r] ?? `Elimination Round ${r}`;
+      positions.push(charPos);
+      ctxs.push({ dbLabel });
+    }
+    charPos += line.length + 1;
+  }
+
+  for (let pi = 0; pi < positions.length; pi++) {
+    const start = positions[pi];
+    const end   = pi + 1 < positions.length ? positions[pi + 1] : wikitext.length;
+    const block = wikitext.slice(start, Math.min(end, start + 2000));
+    const { dbLabel } = ctxs[pi];
+
+    const t1 = block.match(/\|opponent1=\{\{TeamOpponent\|([^|}]+)/);
+    const t2 = block.match(/\|opponent2=\{\{TeamOpponent\|([^|}]+)/);
+
+    const idx = roundCounts[dbLabel] ?? 0;
+    roundCounts[dbLabel] = idx + 1;
+
+    slots.push({
+      roundLabel: dbLabel,
+      slotIndex: idx,
+      teamA: t1 ? resolveTeam(t1[1]) : "TBD",
+      teamB: t2 ? resolveTeam(t2[1]) : "TBD",
+    });
+  }
+
+  return {
+    layout: { hasLowerBracket: hasLB, isSingleElim, ubRounds, lbRounds, grandFinalDbLabel },
+    slots,
+  };
+}
+
+// Convertit une URL Liquipedia en URL API wikitext
+function toWikitextApiUrl(pageUrl: string): string {
+  const m = pageUrl.match(/^(https?:\/\/liquipedia\.net\/[^/?#]+)\/(.+?)(?:\?.*)?$/);
+  if (!m) throw new Error(`URL Liquipedia invalide : ${pageUrl}`);
+  const [, base, rawPage] = m;
+  return `${base}/api.php?action=parse&page=${encodeURIComponent(decodeURIComponent(rawPage))}&prop=wikitext&format=json&disablelimitreport=1`;
+}
+
+export async function fetchBracketData(url: string): Promise<BracketData> {
+  const apiUrl = toWikitextApiUrl(url);
+
+  const res = await fetch(apiUrl, {
+    headers: {
+      "User-Agent": "eSportHUB-BracketSync/1.0 (contact: bmaxime77@sfr.fr)",
+      "Accept-Encoding": "gzip",
+    },
+    next: { revalidate: 300 },
+  });
+
+  if (!res.ok) throw new Error(`Liquipedia API ${res.status}`);
+
+  const data = await res.json() as {
+    parse?: { wikitext?: { "*": string } };
+    error?: { code: string; info: string };
+  };
+
+  if (data.error) throw new Error(`Liquipedia API erreur (${data.error.code}): ${data.error.info}`);
+  if (!data.parse?.wikitext?.["*"]) throw new Error("Liquipedia API: wikitext vide");
+
+  return parseBracketData(data.parse.wikitext["*"]);
+}
+
 // ─── Point d'entrée ──────────────────────────────────────────────────────────
 
 export async function fetchLiquipediaResults(
