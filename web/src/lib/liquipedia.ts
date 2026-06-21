@@ -350,10 +350,13 @@ function toWikitextApiUrl(pageUrl: string): string {
   return `${base}/api.php?action=parse&page=${encodeURIComponent(decodeURIComponent(rawPage))}&prop=wikitext&format=json&disablelimitreport=1`;
 }
 
-// ─── Fallback : parse depuis le HTML rendu (format brkts modern) ──────────────
-// Utilisé quand le wikitext n'a pas de {{Match}} inline (Bracket/8L4DSS etc.)
+// ─── Parse depuis le HTML rendu (fonctionne avec tous les formats Liquipedia) ──
+// Stratégie :
+//  - Chaque brkts-bracket-column = un round
+//  - Classification UB/LB par classe CSS (brkts-header-lower > brkts-header-upper)
+//    en priorité, puis par texte si les classes ne sont pas présentes
+//  - Grand Final : classe brkts-header-upper + texte "Grand Final"
 function parseBracketFromHTML(html: string): BracketData {
-  // Chaque colonne du bracket = un round. On les split par leur balise ouvrante.
   const colRe = /<div[^>]*class="[^"]*brkts-bracket-column[^"]*"[^>]*>/g;
   const colPositions: number[] = [];
   let cm: RegExpExecArray | null;
@@ -363,17 +366,31 @@ function parseBracketFromHTML(html: string): BracketData {
   const ubCols: ColData[] = [];
   const lbCols: ColData[] = [];
   let gfData: { teamA: string; teamB: string } | null = null;
+  let gfHeader = "Grand Final";
 
   for (let ci = 0; ci < colPositions.length; ci++) {
     const start = colPositions[ci];
     const end = ci + 1 < colPositions.length ? colPositions[ci + 1] : Math.min(start + 20000, html.length);
     const chunk = html.slice(start, end);
 
-    // Header du round
-    const hm = chunk.match(/class="[^"]*brkts-header[^"]*"[^>]*>\s*([^<]+)/);
-    const headerText = hm ? hm[1].trim() : "";
+    // Classe de section pour identifier UB vs LB sans dépendre du texte
+    const hasLowerClass = /brkts-header-lower/.test(chunk);
+    const hasUpperClass = /brkts-header-upper/.test(chunk);
 
-    // Positions des brkts-match dans cette colonne (pas brkts-matchlist, brkts-match-popup…)
+    // Texte du round (brkts-header-top = label du round spécifique)
+    const topHm = chunk.match(/class="[^"]*brkts-header-top[^"]*"[^>]*>\s*([^<]+)/);
+    // Texte de section (brkts-header-upper/lower = "Upper Bracket" / "Lower Bracket")
+    const secHm = chunk.match(/class="[^"]*brkts-header-(?:upper|lower)[^"]*"[^>]*>\s*([^<]+)/);
+    // Fallback : n'importe quel brkts-header
+    const anyHm = chunk.match(/class="[^"]*brkts-header[^"]*"[^>]*>\s*([^<]+)/);
+
+    const roundName = topHm?.[1]?.trim() ?? anyHm?.[1]?.trim() ?? "";
+    const sectionName = secHm?.[1]?.trim() ?? "";
+    const displayName = sectionName && roundName
+      ? `${sectionName} – ${roundName}`
+      : roundName || sectionName;
+
+    // Positions des brkts-match (pas brkts-matchlist, brkts-match-popup…)
     const mRe = /<div[^>]*class="[^"]*brkts-match(?![a-zA-Z0-9-])[^"]*"/g;
     const mPositions: number[] = [];
     let mm: RegExpExecArray | null;
@@ -387,7 +404,6 @@ function parseBracketFromHTML(html: string): BracketData {
       const me = mi + 1 < mPositions.length ? mPositions[mi + 1] : Math.min(ms + 3000, chunk.length);
       const mChunk = chunk.slice(ms, me);
       const labels = [...mChunk.matchAll(/aria-label="([^"]{2,60})"/g)].map(m => m[1]);
-      // Déduplique les labels consécutifs identiques (aria-label peut apparaître sur plusieurs éléments)
       const dedup: string[] = [];
       for (const l of labels) {
         if (!dedup.length || dedup[dedup.length - 1] !== l) dedup.push(l);
@@ -395,13 +411,18 @@ function parseBracketFromHTML(html: string): BracketData {
       teams.push({ teamA: dedup[0] ?? "TBD", teamB: dedup[1] ?? "TBD" });
     }
 
-    const h = headerText.toLowerCase();
-    if (/grand.?final/.test(h)) {
-      gfData = teams[0] ?? null;
-    } else if (/lower|elimination/.test(h)) {
-      lbCols.push({ header: headerText, teams });
+    // Classification : CSS en priorité, texte en fallback
+    const combinedText = (displayName + " " + roundName + " " + sectionName).toLowerCase();
+    const isGF  = /grand.?final/.test(combinedText);
+    const isLB  = hasLowerClass || (!isGF && /lower|elimination/.test(combinedText));
+
+    if (isGF) {
+      gfData   = teams[0] ?? null;
+      gfHeader = displayName || "Grand Final";
+    } else if (isLB) {
+      lbCols.push({ header: displayName || roundName, teams });
     } else {
-      ubCols.push({ header: headerText, teams });
+      ubCols.push({ header: displayName || roundName, teams });
     }
   }
 
@@ -445,21 +466,8 @@ function parseBracketFromHTML(html: string): BracketData {
 const LP_HEADERS = { "User-Agent": "eSportHUB-BracketSync/1.0 (contact: bmaxime77@sfr.fr)", "Accept-Encoding": "gzip" };
 
 export async function fetchBracketData(url: string): Promise<BracketData> {
-  // 1. Essai wikitext (ancien format avec {{Match}} inline)
-  try {
-    const wikitextUrl = toWikitextApiUrl(url);
-    const wRes = await fetch(wikitextUrl, { headers: LP_HEADERS, next: { revalidate: 300 } });
-    if (wRes.ok) {
-      const wData = await wRes.json() as { parse?: { wikitext?: { "*": string } }; error?: unknown };
-      const wikitext = (wData as { parse?: { wikitext?: { "*": string } } }).parse?.wikitext?.["*"];
-      if (wikitext) {
-        const result = parseBracketData(wikitext);
-        if (result.layout.ubRounds.length > 0) return result;
-      }
-    }
-  } catch { /* fall through */ }
-
-  // 2. Fallback : HTML rendu (nouveau format brkts – Bracket/8L4DSS etc.)
+  // HTML d'abord : source de vérité pour tous les formats (brkts system + anciens)
+  // Le wikitext peut contenir des données UB partielles et induire en erreur (single-elim)
   const htmlUrl = toApiUrl(url);
   const hRes = await fetch(htmlUrl, { headers: LP_HEADERS, next: { revalidate: 300 } });
   if (!hRes.ok) throw new Error(`Liquipedia API ${hRes.status}`);
@@ -468,7 +476,24 @@ export async function fetchBracketData(url: string): Promise<BracketData> {
   if (hData.error) throw new Error(`Liquipedia API (${hData.error.code}): ${hData.error.info}`);
   if (!hData.parse?.text?.["*"]) throw new Error("Liquipedia API: pas de contenu HTML");
 
-  return parseBracketFromHTML(hData.parse.text["*"]);
+  const htmlResult = parseBracketFromHTML(hData.parse.text["*"]);
+  if (htmlResult.layout.ubRounds.length > 0) return htmlResult;
+
+  // Fallback wikitext (ancien format {{Match}} inline, rare)
+  try {
+    const wikitextUrl = toWikitextApiUrl(url);
+    const wRes = await fetch(wikitextUrl, { headers: LP_HEADERS, next: { revalidate: 300 } });
+    if (wRes.ok) {
+      const wData = await wRes.json() as { parse?: { wikitext?: { "*": string } } };
+      const wikitext = wData.parse?.wikitext?.["*"];
+      if (wikitext) {
+        const result = parseBracketData(wikitext);
+        if (result.layout.ubRounds.length > 0) return result;
+      }
+    }
+  } catch { /* ignored */ }
+
+  return htmlResult; // layout vide mais structure valide
 }
 
 // ─── Point d'entrée ──────────────────────────────────────────────────────────
