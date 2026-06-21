@@ -47,7 +47,7 @@ export async function POST(req: Request) {
   const db = adminClient();
   const { data: tournament } = await db
     .from("tournaments")
-    .select("id, slug, name")
+    .select("id, slug, name, start_date")
     .eq("id", tournamentId)
     .single();
 
@@ -122,6 +122,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ dryRun: true, matches: parsed, count: parsed.length });
   }
 
+  const fallbackDate = tournament.start_date
+    ? new Date(tournament.start_date).toISOString()
+    : new Date().toISOString();
+
   const rows = parsed.map(m => ({
     tournament_id: tournament.id,
     match_key:     m.matchKey,
@@ -131,7 +135,7 @@ export async function POST(req: Request) {
     score_a:       null as number | null,
     score_b:       null as number | null,
     status:        "upcoming",
-    scheduled_at:  m.scheduledAt,
+    scheduled_at:  m.scheduledAt ?? fallbackDate,
     round_label:   m.roundLabel,
   }));
 
