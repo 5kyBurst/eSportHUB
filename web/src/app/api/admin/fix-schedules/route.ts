@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient as createServerClient } from "@/lib/supabase/server";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database";
+import { isAdmin } from "@/lib/admin";
 
 function adminClient() {
   return createClient<Database>(
@@ -14,8 +15,7 @@ function adminClient() {
 // Corrige les scheduled_at décalés d'1 jour+1h pour Semaine 2 et 3 du CDL S4
 export async function POST(req: Request) {
   const supabase = await createServerClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user || user.email !== process.env.ADMIN_EMAIL) {
+  if (!await isAdmin()) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { syncScores } from "@/lib/sync-scores";
+import { isAdmin } from "@/lib/admin";
 
 export async function POST() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user || user.email !== process.env.ADMIN_EMAIL) {
+  if (!await isAdmin()) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

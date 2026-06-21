@@ -14,6 +14,7 @@ export interface Database {
           username: string;
           avatar_url: string | null;
           points: number;
+          is_admin: boolean;
           created_at: string;
         };
         Insert: Omit<Database["public"]["Tables"]["profiles"]["Row"], "created_at">;

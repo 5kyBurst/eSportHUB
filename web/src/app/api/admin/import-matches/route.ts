@@ -3,6 +3,7 @@ import { createClient as createServerClient } from "@/lib/supabase/server";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database";
 import { parseWikitextMatches } from "@/lib/liquipedia-import";
+import { isAdmin } from "@/lib/admin";
 
 function adminClient() {
   return createClient<Database>(
@@ -23,8 +24,7 @@ function toApiUrl(pageUrl: string): string {
 // - dryRun=false → insère (upsert par match_key) dans la DB
 export async function POST(req: Request) {
   const supabase = await createServerClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user || user.email !== process.env.ADMIN_EMAIL) {
+  if (!await isAdmin()) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

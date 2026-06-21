@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient as createServerClient } from "@/lib/supabase/server";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database";
+import { isAdmin } from "@/lib/admin";
 
 function adminClient() {
   return createClient<Database>(
@@ -14,8 +15,7 @@ function adminClient() {
 // Calcule points_earned pour toutes les prédictions des matchs terminés.
 export async function POST(req: Request) {
   const serverClient = await createServerClient();
-  const { data: { user } } = await serverClient.auth.getUser();
-  if (!user || user.email !== process.env.ADMIN_EMAIL) {
+  if (!await isAdmin()) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { createClient as createServerClient } from "@/lib/supabase/server";
+import { isAdmin } from "@/lib/admin";
 
 // GET /api/admin/debug-scraper?url=https://liquipedia.net/callofduty/Call_of_Duty_League/Season_7/Stage_4/Minor
 export async function GET(req: Request) {
   const supabase = await createServerClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user || user.email !== process.env.ADMIN_EMAIL) {
+  if (!await isAdmin()) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

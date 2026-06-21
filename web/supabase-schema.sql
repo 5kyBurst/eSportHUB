@@ -4,6 +4,7 @@ create table profiles (
   username    text unique not null,
   avatar_url  text,
   points      integer not null default 0,
+  is_admin    boolean not null default false,
   created_at  timestamptz default now()
 );
 
