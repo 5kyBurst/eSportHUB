@@ -390,15 +390,24 @@ function parseBracketFromHTML(html: string): BracketData {
     const end    = ci + 1 < colPositions.length ? colPositions[ci + 1] : Math.min(start + 20000, html.length);
     const chunk  = html.slice(start, end);
 
-    // Collecte TOUS les textes de headers dans cette colonne pour la classification
-    const allHeaderTexts = [...chunk.matchAll(/class="[^"]*brkts-header[^"]*"[^>]*>\s*([^<]+)/g)]
-      .map(m => m[1].trim())
-      .filter(Boolean);
+    // Extrait le texte de chaque brkts-header en strippant les tags imbriqués
+    // (le header peut être <div class="brkts-header"><span>Lower Bracket</span></div>)
+    const allHeaderTexts: string[] = [];
+    const hRe2 = /class="[^"]*brkts-header[^"]*"[^>]*>([\s\S]{0,400}?)<\/div>/g;
+    let hm2: RegExpExecArray | null;
+    while ((hm2 = hRe2.exec(chunk)) !== null) {
+      const text = hm2[1].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+      if (text) allHeaderTexts.push(text);
+    }
+    // Fallback : cherche le texte directement après > (pas de tag imbriqué)
+    if (!allHeaderTexts.length) {
+      const anyHm = chunk.match(/class="[^"]*brkts-header[^"]*"[^>]*>\s*([^<]+)/);
+      if (anyHm?.[1]?.trim()) allHeaderTexts.push(anyHm[1].trim());
+    }
     const combinedHeaderText = allHeaderTexts.join(" ").toLowerCase();
 
-    // Header d'affichage = brkts-header-top (round label) ou premier brkts-header
-    const topHm  = chunk.match(/class="[^"]*brkts-header-top[^"]*"[^>]*>\s*([^<]+)/);
-    const headerText = (topHm?.[1] ?? allHeaderTexts[0] ?? "").trim();
+    // Header d'affichage = premier header extrait (après strip des tags)
+    const headerText = allHeaderTexts[0] ?? "";
 
     // Positions des brkts-match (exclut brkts-match-popup, brkts-matchlist…)
     const mRe = /<div[^>]*class="[^"]*brkts-match(?![a-zA-Z0-9-])[^"]*"/g;
