@@ -351,12 +351,29 @@ function toWikitextApiUrl(pageUrl: string): string {
 }
 
 // ─── Parse depuis le HTML rendu (fonctionne avec tous les formats Liquipedia) ──
-// Stratégie :
-//  - Chaque brkts-bracket-column = un round
-//  - Classification UB/LB par classe CSS (brkts-header-lower > brkts-header-upper)
-//    en priorité, puis par texte si les classes ne sont pas présentes
-//  - Grand Final : classe brkts-header-upper + texte "Grand Final"
+// Stratégie de classification UB/LB (par ordre de priorité) :
+//  1. Position : colonne après le début du container brkts-lower → LB
+//  2. Classe CSS brkts-header-lower dans la colonne → LB
+//  3. Texte du header contient "lower" / "elimination" → LB
+//  4. Grand Final : texte "grand final" dans le header
 function parseBracketFromHTML(html: string): BracketData {
+  // ── 1. Trouver la position du container Lower Bracket dans le HTML ──────────
+  // Classiquement : <div class="brkts-bracket ... brkts-lower ..."> ou brkts-bracket-lower
+  // OU : section header dont le texte contient "lower bracket" ou "elimination bracket"
+  const lbContainerMatch = html.match(
+    /class="[^"]*brkts-(?:lower|bracket-lower)[^"]*"/
+  ) ?? html.match(
+    /class="[^"]*brkts-bracket[^"]*lower[^"]*"/
+  );
+  // Fallback : cherche un header de section "Lower Bracket" / "Elimination Bracket"
+  const lbSectionHeaderMatch = html.match(
+    /class="[^"]*brkts-header[^"]*"[^>]*>\s*(?:lower bracket|elimination bracket)/i
+  );
+  const lbStartPos = lbContainerMatch?.index
+    ?? lbSectionHeaderMatch?.index
+    ?? Infinity;
+
+  // ── 2. Trouver toutes les colonnes ─────────────────────────────────────────
   const colRe = /<div[^>]*class="[^"]*brkts-bracket-column[^"]*"[^>]*>/g;
   const colPositions: number[] = [];
   let cm: RegExpExecArray | null;
@@ -366,31 +383,24 @@ function parseBracketFromHTML(html: string): BracketData {
   const ubCols: ColData[] = [];
   const lbCols: ColData[] = [];
   let gfData: { teamA: string; teamB: string } | null = null;
-  let gfHeader = "Grand Final";
 
   for (let ci = 0; ci < colPositions.length; ci++) {
-    const start = colPositions[ci];
-    const end = ci + 1 < colPositions.length ? colPositions[ci + 1] : Math.min(start + 20000, html.length);
-    const chunk = html.slice(start, end);
+    const colPos = colPositions[ci];
+    const start  = colPos;
+    const end    = ci + 1 < colPositions.length ? colPositions[ci + 1] : Math.min(start + 20000, html.length);
+    const chunk  = html.slice(start, end);
 
-    // Classe de section pour identifier UB vs LB sans dépendre du texte
-    const hasLowerClass = /brkts-header-lower/.test(chunk);
-    const hasUpperClass = /brkts-header-upper/.test(chunk);
+    // Collecte TOUS les textes de headers dans cette colonne pour la classification
+    const allHeaderTexts = [...chunk.matchAll(/class="[^"]*brkts-header[^"]*"[^>]*>\s*([^<]+)/g)]
+      .map(m => m[1].trim())
+      .filter(Boolean);
+    const combinedHeaderText = allHeaderTexts.join(" ").toLowerCase();
 
-    // Texte du round (brkts-header-top = label du round spécifique)
-    const topHm = chunk.match(/class="[^"]*brkts-header-top[^"]*"[^>]*>\s*([^<]+)/);
-    // Texte de section (brkts-header-upper/lower = "Upper Bracket" / "Lower Bracket")
-    const secHm = chunk.match(/class="[^"]*brkts-header-(?:upper|lower)[^"]*"[^>]*>\s*([^<]+)/);
-    // Fallback : n'importe quel brkts-header
-    const anyHm = chunk.match(/class="[^"]*brkts-header[^"]*"[^>]*>\s*([^<]+)/);
+    // Header d'affichage = brkts-header-top (round label) ou premier brkts-header
+    const topHm  = chunk.match(/class="[^"]*brkts-header-top[^"]*"[^>]*>\s*([^<]+)/);
+    const headerText = (topHm?.[1] ?? allHeaderTexts[0] ?? "").trim();
 
-    const roundName = topHm?.[1]?.trim() ?? anyHm?.[1]?.trim() ?? "";
-    const sectionName = secHm?.[1]?.trim() ?? "";
-    const displayName = sectionName && roundName
-      ? `${sectionName} – ${roundName}`
-      : roundName || sectionName;
-
-    // Positions des brkts-match (pas brkts-matchlist, brkts-match-popup…)
+    // Positions des brkts-match (exclut brkts-match-popup, brkts-matchlist…)
     const mRe = /<div[^>]*class="[^"]*brkts-match(?![a-zA-Z0-9-])[^"]*"/g;
     const mPositions: number[] = [];
     let mm: RegExpExecArray | null;
@@ -411,18 +421,20 @@ function parseBracketFromHTML(html: string): BracketData {
       teams.push({ teamA: dedup[0] ?? "TBD", teamB: dedup[1] ?? "TBD" });
     }
 
-    // Classification : CSS en priorité, texte en fallback
-    const combinedText = (displayName + " " + roundName + " " + sectionName).toLowerCase();
-    const isGF  = /grand.?final/.test(combinedText);
-    const isLB  = hasLowerClass || (!isGF && /lower|elimination/.test(combinedText));
+    // Classification : utilise la concaténation de TOUS les textes de headers
+    // → "Lower Bracket" + "Round 1" = "Lower Bracket Round 1" → détecte "lower"
+    const isGF       = /grand.?final/.test(combinedHeaderText);
+    const isLBByPos  = colPos >= lbStartPos;
+    const isLBByClass = /brkts-header-lower/.test(chunk);
+    const isLBByText  = !isGF && /lower|elimination/.test(combinedHeaderText);
+    const isLB        = !isGF && (isLBByPos || isLBByClass || isLBByText);
 
     if (isGF) {
-      gfData   = teams[0] ?? null;
-      gfHeader = displayName || "Grand Final";
+      gfData = teams[0] ?? null;
     } else if (isLB) {
-      lbCols.push({ header: displayName || roundName, teams });
+      lbCols.push({ header: headerText, teams });
     } else {
-      ubCols.push({ header: displayName || roundName, teams });
+      ubCols.push({ header: headerText, teams });
     }
   }
 
