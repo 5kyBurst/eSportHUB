@@ -3,6 +3,7 @@ import { createClient as createServerClient } from "@/lib/supabase/server";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database";
 import { parseWikitextMatches } from "@/lib/liquipedia-import";
+import { fetchBracketData } from "@/lib/liquipedia";
 import { isAdmin } from "@/lib/admin";
 
 function adminClient() {
@@ -12,18 +13,23 @@ function adminClient() {
   );
 }
 
-function toApiUrl(pageUrl: string): string {
-  const url = new URL(pageUrl);
-  const page = url.pathname.replace(/^\/callofduty\//, "");
-  return `https://liquipedia.net/callofduty/api.php?action=parse&page=${encodeURIComponent(page)}&prop=wikitext&format=json`;
+// Construit l'URL API Liquipedia wikitext pour n'importe quel wiki (CDL, VCT, RLCS…)
+function toWikitextApiUrl(pageUrl: string): string {
+  const m = pageUrl.match(/^(https?:\/\/liquipedia\.net\/[^/?#]+)\/(.+?)(?:\?.*)?$/);
+  if (!m) throw new Error(`URL Liquipedia invalide : ${pageUrl}`);
+  const [, base, rawPage] = m;
+  return `${base}/api.php?action=parse&page=${encodeURIComponent(decodeURIComponent(rawPage))}&prop=wikitext&format=json&disablelimitreport=1`;
 }
+
+const LP_HEADERS = {
+  "User-Agent": "eSportHUB-ScoreSync/1.0 (contact: bmaxime77@sfr.fr)",
+  "Accept-Encoding": "gzip",
+};
 
 // POST /api/admin/import-matches
 // Body: { tournamentId, liquipediaUrl, dryRun? }
-// - dryRun=true  → retourne la liste parsée sans insérer
-// - dryRun=false → insère (upsert par match_key) dans la DB
 export async function POST(req: Request) {
-  const supabase = await createServerClient();
+  await createServerClient();
   if (!await isAdmin()) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
@@ -38,7 +44,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "URL Liquipedia invalide" }, { status: 400 });
   }
 
-  // Récupère le slug du tournoi
   const db = adminClient();
   const { data: tournament } = await db
     .from("tournaments")
@@ -50,40 +55,50 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Tournoi introuvable" }, { status: 404 });
   }
 
-  // Fetch le wikitext depuis Liquipedia
-  const apiUrl = toApiUrl(liquipediaUrl);
-  let wikitext: string;
-  try {
-    const res = await fetch(apiUrl, {
-      headers: {
-        "User-Agent": "eSportHUB-ScoreSync/1.0 (contact: bmaxime77@sfr.fr)",
-        "Accept-Encoding": "gzip",
-      },
-      next: { revalidate: 0 },
-    });
-    if (!res.ok) {
-      return NextResponse.json({ error: `Liquipedia API erreur ${res.status}` }, { status: 502 });
+  // ── 1. Essai wikitext (ancien format {{Match}} — Swiss stages, anciens brackets) ──
+  let parsed = await (async () => {
+    try {
+      const res = await fetch(toWikitextApiUrl(liquipediaUrl), {
+        headers: LP_HEADERS,
+        next: { revalidate: 0 },
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (data.error) return null;
+      const wikitext: string = data.parse?.wikitext?.["*"] ?? "";
+      if (!wikitext) return null;
+      const result = parseWikitextMatches(wikitext, tournament.slug);
+      return result.length > 0 ? result : null;
+    } catch {
+      return null;
     }
-    const data = await res.json();
-    if (data.error) {
-      return NextResponse.json({ error: `Liquipedia: ${data.error.info ?? data.error.code}` }, { status: 502 });
+  })();
+
+  // ── 2. Fallback HTML (nouveau format brkts — Bracket/8L4DSS, Bracket/8UBL2DSL1D…) ──
+  if (!parsed) {
+    try {
+      const bracketData = await fetchBracketData(liquipediaUrl);
+      const slots = bracketData.slots.filter(s => s.teamA !== "TBD" || s.teamB !== "TBD");
+
+      if (slots.length > 0) {
+        parsed = slots.map(slot => ({
+          matchKey: `${tournament.slug}-${slot.roundLabel.toLowerCase().replace(/\s+/g, "-")}-${slot.slotIndex}`,
+          teamA: slot.teamA === "TBD" ? "À déterminer" : slot.teamA,
+          teamB: slot.teamB === "TBD" ? "À déterminer" : slot.teamB,
+          roundLabel: slot.roundLabel,
+          scheduledAt: null,
+        }));
+      }
+    } catch (e) {
+      return NextResponse.json({
+        error: `Impossible de récupérer le bracket: ${String(e)}`,
+      }, { status: 502 });
     }
-    wikitext = data.parse?.wikitext?.["*"] ?? "";
-  } catch (e) {
-    return NextResponse.json({ error: `Fetch Liquipedia échoué: ${String(e)}` }, { status: 502 });
   }
 
-  if (!wikitext) {
-    return NextResponse.json({ error: "Wikitext vide — vérifier l'URL" }, { status: 502 });
-  }
-
-  // Parse les matchs
-  const parsed = parseWikitextMatches(wikitext, tournament.slug);
-
-  if (parsed.length === 0) {
+  if (!parsed || parsed.length === 0) {
     return NextResponse.json({
-      error: "Aucun match trouvé dans le wikitext. Vérifier l'URL et le format de la page.",
-      wikitextSnippet: wikitext.slice(0, 500),
+      error: "Aucun match trouvé. Vérifier l'URL Liquipedia et que la page contient un bracket ou une matchlist.",
     }, { status: 422 });
   }
 
@@ -91,7 +106,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ dryRun: true, matches: parsed, count: parsed.length });
   }
 
-  // Upsert dans la DB
   const rows = parsed.map(m => ({
     tournament_id: tournament.id,
     match_key:     m.matchKey,
