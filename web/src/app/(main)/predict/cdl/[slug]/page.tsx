@@ -272,16 +272,16 @@ export default function CDLTournamentPage() {
       if (!t) { setLoading(false); return; }
       setTournament(t);
 
-      // 1b. Layout Liquipedia (structure du bracket + slots TBD)
+      // 1b. Layout Liquipedia (structure du bracket + slots TBD) — awaité pour être disponible
+      //     même si aucun match n'est encore importé en DB
       const isBracketFormat = ["bracket", "double_elim", "double_elimination", "single_elimination"].includes(t.format ?? "");
       if (isBracketFormat) {
-        fetch(`/api/bracket/${t.slug}`)
-          .then(r => r.json())
-          .then((d: { layout?: BracketLayout; slots?: BracketSlot[] }) => {
-            if (d.layout) setBracketLayout(d.layout);
-            if (d.slots?.length) setBracketSlots(d.slots);
-          })
-          .catch(() => {/* silencieux */});
+        try {
+          const r = await fetch(`/api/bracket/${t.slug}`);
+          const d = await r.json() as { layout?: BracketLayout; slots?: BracketSlot[] };
+          if (d.layout) setBracketLayout(d.layout);
+          if (d.slots?.length) setBracketSlots(d.slots);
+        } catch { /* silencieux */ }
       }
 
       // 2. Matchs
@@ -291,6 +291,7 @@ export default function CDLTournamentPage() {
         .eq("tournament_id", t.id)
         .order("scheduled_at", { ascending: true });
 
+      // Pour les formats bracket : on affiche le bracket même sans matchs en DB
       if (!matches?.length) { setLoading(false); return; }
       const grouped = groupMatches(matches as DBMatch[]);
       setWeeks(grouped);

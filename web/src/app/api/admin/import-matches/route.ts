@@ -78,16 +78,32 @@ export async function POST(req: Request) {
   if (!parsed) {
     try {
       const bracketData = await fetchBracketData(liquipediaUrl);
-      const slots = bracketData.slots.filter(s => s.teamA !== "TBD" || s.teamB !== "TBD");
 
-      if (slots.length > 0) {
-        parsed = slots.map(slot => ({
+      // Importe TOUS les slots, même TBD — la structure du bracket doit apparaître en DB
+      // pour que la page predict puisse afficher les cases et accepter des prédictions.
+      if (bracketData.slots.length > 0) {
+        parsed = bracketData.slots.map(slot => ({
           matchKey: `${tournament.slug}-${slot.roundLabel.toLowerCase().replace(/\s+/g, "-")}-${slot.slotIndex}`,
-          teamA: slot.teamA === "TBD" ? "À déterminer" : slot.teamA,
-          teamB: slot.teamB === "TBD" ? "À déterminer" : slot.teamB,
+          teamA: slot.teamA === "TBD" ? "TBD" : slot.teamA,
+          teamB: slot.teamB === "TBD" ? "TBD" : slot.teamB,
           roundLabel: slot.roundLabel,
           scheduledAt: null,
         }));
+      } else if (bracketData.layout.ubRounds.length > 0) {
+        // Bracket connu structurellement mais 0 équipes → créer des slots vides
+        const rounds = [...bracketData.layout.ubRounds, ...bracketData.layout.lbRounds];
+        if (bracketData.layout.grandFinalDbLabel) {
+          rounds.push({ label: "Grand Final", dbLabel: bracketData.layout.grandFinalDbLabel, matchCount: 1 });
+        }
+        parsed = rounds.flatMap(r =>
+          Array.from({ length: r.matchCount }, (_, i) => ({
+            matchKey: `${tournament.slug}-${r.dbLabel.toLowerCase().replace(/\s+/g, "-")}-${i}`,
+            teamA: "TBD",
+            teamB: "TBD",
+            roundLabel: r.dbLabel,
+            scheduledAt: null,
+          }))
+        );
       }
     } catch (e) {
       return NextResponse.json({
