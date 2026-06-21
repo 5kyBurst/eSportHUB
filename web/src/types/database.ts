@@ -17,8 +17,19 @@ export interface Database {
           is_admin: boolean;
           created_at: string;
         };
-        Insert: Omit<Database["public"]["Tables"]["profiles"]["Row"], "created_at">;
-        Update: Partial<Database["public"]["Tables"]["profiles"]["Insert"]>;
+        Insert: {
+          id: string;
+          username: string;
+          avatar_url?: string | null;
+          points?: number;
+          is_admin?: boolean;
+        };
+        Update: {
+          username?: string;
+          avatar_url?: string | null;
+          points?: number;
+          is_admin?: boolean;
+        };
       };
       tournaments: {
         Row: {
@@ -33,8 +44,26 @@ export interface Database {
           game: string | null;
           created_at: string;
         };
-        Insert: Omit<Database["public"]["Tables"]["tournaments"]["Row"], "id" | "created_at">;
-        Update: Partial<Database["public"]["Tables"]["tournaments"]["Insert"]>;
+        Insert: {
+          name: string;
+          slug: string;
+          format: TournamentFormat;
+          start_date: string;
+          end_date: string;
+          status?: MatchStatus;
+          liquipedia_url?: string | null;
+          game?: string | null;
+        };
+        Update: {
+          name?: string;
+          slug?: string;
+          format?: TournamentFormat;
+          start_date?: string;
+          end_date?: string;
+          status?: MatchStatus;
+          liquipedia_url?: string | null;
+          game?: string | null;
+        };
       };
       matches: {
         Row: {
@@ -51,8 +80,30 @@ export interface Database {
           round_label: string;
           created_at: string;
         };
-        Insert: Omit<Database["public"]["Tables"]["matches"]["Row"], "id" | "created_at">;
-        Update: Partial<Database["public"]["Tables"]["matches"]["Insert"]>;
+        Insert: {
+          tournament_id: string;
+          match_key: string;
+          team_a: string;
+          team_b: string;
+          format?: string;
+          score_a?: number | null;
+          score_b?: number | null;
+          status?: MatchStatus;
+          scheduled_at: string;
+          round_label: string;
+        };
+        Update: {
+          tournament_id?: string;
+          match_key?: string;
+          team_a?: string;
+          team_b?: string;
+          format?: string;
+          score_a?: number | null;
+          score_b?: number | null;
+          status?: MatchStatus;
+          scheduled_at?: string;
+          round_label?: string;
+        };
       };
       predictions: {
         Row: {
@@ -65,8 +116,16 @@ export interface Database {
           created_at: string;
           updated_at: string;
         };
-        Insert: Omit<Database["public"]["Tables"]["predictions"]["Row"], "id" | "points_earned" | "created_at" | "updated_at">;
-        Update: Partial<Pick<Database["public"]["Tables"]["predictions"]["Row"], "score_a" | "score_b">>;
+        Insert: {
+          user_id: string;
+          match_id: string;
+          score_a: number;
+          score_b: number;
+        };
+        Update: {
+          score_a?: number;
+          score_b?: number;
+        };
       };
       cards: {
         Row: {
@@ -81,8 +140,26 @@ export interface Database {
           stats: Json;
           created_at: string;
         };
-        Insert: Omit<Database["public"]["Tables"]["cards"]["Row"], "id" | "created_at">;
-        Update: Partial<Database["public"]["Tables"]["cards"]["Insert"]>;
+        Insert: {
+          type: CardType;
+          name: string;
+          role?: string | null;
+          team: string;
+          region: string;
+          rarity: Rarity;
+          image_url?: string | null;
+          stats?: Json;
+        };
+        Update: {
+          type?: CardType;
+          name?: string;
+          role?: string | null;
+          team?: string;
+          region?: string;
+          rarity?: Rarity;
+          image_url?: string | null;
+          stats?: Json;
+        };
       };
       card_packs: {
         Row: {
@@ -94,8 +171,20 @@ export interface Database {
           rarity_weights: Json;
           created_at: string;
         };
-        Insert: Omit<Database["public"]["Tables"]["card_packs"]["Row"], "id" | "created_at">;
-        Update: Partial<Database["public"]["Tables"]["card_packs"]["Insert"]>;
+        Insert: {
+          name: string;
+          description?: string;
+          cost_points: number;
+          card_count?: number;
+          rarity_weights?: Json;
+        };
+        Update: {
+          name?: string;
+          description?: string;
+          cost_points?: number;
+          card_count?: number;
+          rarity_weights?: Json;
+        };
       };
       user_cards: {
         Row: {
@@ -104,7 +193,10 @@ export interface Database {
           card_id: string;
           acquired_at: string;
         };
-        Insert: Omit<Database["public"]["Tables"]["user_cards"]["Row"], "id" | "acquired_at">;
+        Insert: {
+          user_id: string;
+          card_id: string;
+        };
         Update: never;
       };
     };
